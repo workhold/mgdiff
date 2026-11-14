@@ -1,0 +1,118 @@
+name: Release desktop installers
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check that the tag matches the app versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+
+          const tag = process.env.RELEASE_TAG
+          if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) {
+            throw new Error(`Expected a version tag such as v0.1.0, got ${tag}`)
+          }
+          const version = tag.slice(1)
+          const packageVersion = JSON.parse(readFileSync('package.json', 'utf8')).version
+          const tauriVersion = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8')).version
+          const cargoPackage = readFileSync('src-tauri/Cargo.toml', 'utf8')
+            .split(/^\[package\][^\S\r\n]*$/m)[1]?.split(/^\[/m)[0]
+          const cargoVersion = cargoPackage?.match(/^version\s*=\s*"([^"]+)"/m)?.[1]
+          for (const [file, actual] of [
+            ['package.json', packageVersion],
+            ['src-tauri/tauri.conf.json', tauriVersion],
+            ['src-tauri/Cargo.toml', cargoVersion],
+          ]) {
+            if (actual !== version) throw new Error(`${file} version ${actual ?? '(missing)'} does not match ${tag}`)
+          }
+          console.log(`All app versions match ${tag}`)
+          NODE
+
+  build:
+    needs: verify-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            build_args: --target aarch64-apple-darwin --bundles dmg
+            bundle_path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            signing_identity: '-'
+          - name: macos-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            build_args: --target x86_64-apple-darwin --bundles dmg
+            bundle_path: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            signing_identity: '-'
+          - name: windows-x64
+            os: windows-latest
+            target: ''
+            build_args: --bundles nsis
+            bundle_path: src-tauri/target/release/bundle/nsis/*-setup.exe
+            signing_identity: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build installer
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ matrix.signing_identity }}
+        run: npm run tauri -- build --ci ${{ matrix.build_args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mgdiff-${{ matrix.name }}
+          path: ${{ matrix.bundle_path }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mgdiff-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --title "MGDiff $RELEASE_TAG" \
+              --generate-notes
+          fi

@@ -1,0 +1,123 @@
+.mg-dropdown {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.mg-dropdown__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 37px;
+  padding: 7px 10px;
+  border: 1px solid #bfd0d5;
+  border-radius: 6px;
+  background: #fff;
+  color: #243d47;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mg-dropdown__trigger:hover:not(:disabled),
+.mg-dropdown__trigger[aria-expanded='true'] {
+  border-color: #75b6aa;
+  background: #fcfefd;
+}
+
+.mg-dropdown__trigger:focus-visible {
+  outline: 2px solid #32aa9c;
+  outline-offset: 2px;
+}
+
+.mg-dropdown__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mg-dropdown__chevron {
+  flex: 0 0 auto;
+  color: #647e83;
+  transition: transform .15s ease;
+}
+
+.mg-dropdown__trigger[aria-expanded='true'] .mg-dropdown__chevron {
+  transform: rotate(180deg);
+}
+
+.mg-dropdown__menu {
+  position: fixed;
+  z-index: 1000;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid #bfd0d5;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(28, 50, 61, .18);
+  overscroll-behavior: contain;
+}
+
+.mg-dropdown__option {
+  min-height: 34px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  color: #2c4550;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.mg-dropdown__option.is-active {
+  background: #e9f5f1;
+  color: #075f56;
+}
+
+.mg-dropdown__option.is-selected {
+  font-weight: 700;
+}
+
+.mg-dropdown__option.is-disabled {
+  color: #9aa9ae;
+  cursor: not-allowed;
+}
+
+.devtool-field .mg-dropdown {
+  width: 100%;
+  max-width: 220px;
+}
+
+.history-filter .mg-dropdown {
+  min-width: 105px;
+}
+
+.history-filter .mg-dropdown__trigger {
+  min-height: 38px;
+  font-weight: 600;
+}
+
+.mobile-mode-picker .mg-dropdown {
+  width: 120px;
+}
+
+.mobile-mode-picker .mg-dropdown__trigger,
+.result-toolbar .mg-dropdown__trigger {
+  min-height: 30px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.result-toolbar .mg-dropdown {
+  max-width: 240px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mg-dropdown__chevron { transition: none; }
+}

@@ -1,0 +1,117 @@
+.devtool-layout { display: grid; grid-template-columns: 218px minmax(0, 1fr); align-items: start; gap: 16px; }
+.devtool-list { position: sticky; top: 16px; max-height: calc(100vh - 204px); display: flex; flex-direction: column; }
+.devtool-list-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 15px 10px; color: #263b45; font-size: 13px; }
+.devtool-list-head span { min-width: 24px; padding: 2px 6px; border-radius: 9px; background: #eaf4f0; color: #276f61; font-size: 10px; text-align: center; }
+.devtool-search { display: flex; align-items: center; gap: 7px; margin: 0 10px 9px; padding: 0 9px; border: 1px solid #cbd8dc; border-radius: 7px; color: #788b93; background: #f7faf9; }
+.devtool-search:focus-within { border-color: #32aa9c; outline: 2px solid #c7eee5; }
+.devtool-search input { width: 100%; min-width: 0; height: 34px; border: 0; outline: 0; background: transparent; color: #27404a; font-size: 12px; }
+.devtool-search input:focus-visible { outline: none; }
+.devtool-list-scroll { min-height: 0; padding: 0 7px 9px; overflow-y: auto; }
+.devtool-group + .devtool-group { margin-top: 9px; }
+.devtool-group-label { padding: 7px 8px 5px; color: #72828a; font-size: 10px; font-weight: 700; letter-spacing: .5px; }
+.devtool-list-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 7px 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #425963; font-size: 12px; font-weight: 600; text-align: left; }
+.devtool-list-item svg { flex: 0 0 auto; color: #758d92; }
+.devtool-list-item:hover { background: #f1f7f5; color: #115f56; }
+.devtool-list-item.active { border-color: #b8ddd3; background: #e4f3ee; color: #075f56; }
+.devtool-list-item.active svg { color: #087d70; }
+.devtool-empty { padding: 0 9px 9px; color: #667b82; font-size: 11px; line-height: 1.5; }
+.devtool-main { min-width: 0; }
+.devtool-current { display: flex; align-items: center; gap: 8px; min-height: 37px; color: #49636d; font-size: 12px; font-weight: 700; }
+.devtool-current svg { color: #168071; }
+.devtool-current small { margin-left: auto; color: #6a7f87; font-size: 11px; font-weight: 500; }
+.devtool-panel { min-height: 430px; }
+.devtool-panel-head { padding: 21px 24px 19px; border-bottom: 1px solid #dfe8e9; background: linear-gradient(105deg, #f4faf7, #fff 70%); }
+.devtool-panel-head h2 { margin: 7px 0 0; color: #20343c; font-size: 19px; line-height: 1.25; }
+.devtool-panel-head p { margin: 7px 0 0; color: #586f77; font-size: 12px; line-height: 1.55; }
+.devtool-panel-body { display: flex; flex-direction: column; gap: 16px; padding: 23px 24px 25px; }
+.devtool-field { display: flex; flex: 1 1 auto; flex-direction: column; gap: 7px; min-width: 0; color: #36505b; }
+.devtool-label { color: #344c56; font-size: 12px; font-weight: 700; }
+.devtool-field small { color: #71838b; font-size: 11px; line-height: 1.4; }
+.devtool-field input, .devtool-field textarea { width: 100%; min-width: 0; min-height: 37px; padding: 8px 10px; border: 1px solid #bfd0d5; border-radius: 6px; background: #fff; color: #243d47; font-size: 12px; }
+.devtool-field input::placeholder, .devtool-field textarea::placeholder { color: #98a7ad; }
+.devtool-field input[type="number"] { max-width: 150px; }
+.devtool-field .devtool-textarea { min-height: 162px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55; }
+.devtool-field .devtool-textarea--short { min-height: 90px; }
+.devtool-grid-2, .devtool-grid-3 { display: grid; gap: 13px; }
+.devtool-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.devtool-grid-3 { grid-template-columns: 2fr 1fr 1fr; }
+.devtool-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 13px; }
+.devtool-controls > .devtool-field { flex: 0 1 155px; }
+.devtool-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.devtool-actions .button { min-height: 37px; }
+.devtool-inline { display: flex; align-items: end; gap: 12px; }
+.devtool-inline .button { flex: 0 0 auto; min-height: 37px; }
+.devtool-timezone-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; color: #617881; font-size: 11px; }
+.devtool-timezone-row .button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; }
+.devtool-datetime-field { display: flex; flex: 1 1 auto; flex-direction: column; gap: 7px; min-width: 0; color: #36505b; }
+.devtool-datetime-field small { color: #71838b; font-size: 11px; line-height: 1.4; }
+.devtool-datetime-control { display: flex; width: 100%; min-width: 0; min-height: 37px; border: 1px solid #bfd0d5; border-radius: 6px; background: #fff; }
+.devtool-datetime-control:focus-within { outline: 2px solid #32aa9c; outline-offset: 2px; }
+.devtool-datetime-control input { flex: 1; width: 100%; min-width: 0; min-height: 35px; padding: 7px 10px; border: 0; outline: 0; background: transparent; color: #243d47; font-size: 12px; font-variant-numeric: tabular-nums; }
+.devtool-datetime-control input:focus-visible { outline: 0; }
+.devtool-datetime-control input::placeholder { color: #98a7ad; }
+.devtool-datetime-trigger { display: grid; flex: 0 0 37px; place-items: center; min-height: 35px; border: 0; border-left: 1px solid #e0e8e9; border-radius: 0 5px 5px 0; background: #f7faf9; color: #47766c; }
+.devtool-datetime-trigger:hover, .devtool-datetime-trigger[aria-expanded="true"] { background: #e5f3ee; color: #075f56; }
+.devtool-calendar { width: min(100%, 340px); padding: 10px; border: 1px solid #c6d9d8; border-radius: 8px; background: #fbfdfc; box-shadow: 0 4px 12px rgba(25, 54, 57, .08); }
+.devtool-calendar-head { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin-bottom: 8px; }
+.devtool-calendar-head strong { flex: 1; min-width: 0; color: #27434b; font-size: 12px; text-align: center; white-space: nowrap; }
+.devtool-calendar-head button { display: grid; flex: 0 0 27px; place-items: center; width: 27px; height: 29px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #547179; }
+.devtool-calendar-head button:hover { background: #e4f2ee; color: #075f56; }
+.devtool-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.devtool-calendar-weekday { display: grid; place-items: center; min-height: 27px; color: #74868b; font-size: 10px; font-weight: 700; }
+.devtool-calendar-grid button { display: grid; place-items: center; min-width: 0; min-height: 34px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #2b454c; font-size: 11px; font-variant-numeric: tabular-nums; }
+.devtool-calendar-grid button:hover { background: #e6f3ef; color: #075f56; }
+.devtool-calendar-grid button[aria-current="date"] { border-color: #9accc0; }
+.devtool-calendar-grid button[aria-pressed="true"] { border-color: #087d70; background: #087d70; color: #fff; font-weight: 700; }
+.devtool-calendar-time { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e1e9e8; color: #506a73; font-size: 11px; }
+.devtool-calendar-time span { margin-right: auto; }
+.devtool-calendar-time b { color: #799097; font-weight: 400; }
+.devtool-calendar-time input { width: 40px; min-height: 32px; padding: 3px 2px; border: 1px solid #bfd0d5; border-radius: 5px; background: #fff; color: #28444c; font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; appearance: textfield; }
+.devtool-calendar-time input::-webkit-inner-spin-button, .devtool-calendar-time input::-webkit-outer-spin-button { margin: 0; appearance: none; }
+.devtool-calendar-footer { display: flex; justify-content: flex-end; margin-top: 9px; }
+.devtool-calendar-footer button { min-height: 30px; padding: 5px 8px; border: 0; border-radius: 5px; background: #e5f3ee; color: #087064; font-size: 11px; font-weight: 700; }
+.devtool-calendar-footer button:hover { background: #d3ebe3; color: #075f56; }
+.devtool-divider { height: 1px; background: #e1e9ea; }
+.devtool-subheading { margin: 0; color: #2d4550; font-size: 13px; }
+.devtool-message { display: flex; align-items: flex-start; gap: 7px; padding: 10px 11px; border-radius: 6px; font-size: 12px; line-height: 1.5; }
+.devtool-message svg { flex: 0 0 auto; margin-top: 1px; }
+.devtool-message--error { border: 1px solid #f0cdcd; background: #fff5f3; color: #9e3838; }
+.devtool-message--success { border: 1px solid #bee1d1; background: #f2faf5; color: #276d50; }
+.devtool-output-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.devtool-output { min-width: 0; overflow: hidden; border: 1px solid #d3e0e2; border-radius: 7px; background: #f9fbfb; }
+.devtool-output-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 35px; padding: 5px 10px 5px 12px; border-bottom: 1px solid #e2eaeb; background: #f2f7f6; color: #4a626c; font-size: 11px; font-weight: 700; }
+.devtool-output code, .devtool-output pre { display: block; width: 100%; margin: 0; padding: 12px; overflow: auto; color: #1c3d46; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.devtool-output pre { max-height: 350px; }
+.devtool-copy { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 25px; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: #477269; font-size: 10px; font-weight: 700; }
+.devtool-copy:hover:not(:disabled) { background: #e1f1eb; color: #075f56; }
+.devtool-note { margin: 0; color: #687d85; font-size: 11px; line-height: 1.55; }
+.devtool-warning { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 10px 12px; border: 1px solid #efd6ac; border-radius: 6px; background: #fffaf0; color: #80602a; font-size: 11px; line-height: 1.5; }
+.devtool-warning svg { flex: 0 0 auto; }
+.devtool-match-list { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; }
+.devtool-match-list > strong { color: #35525b; font-size: 12px; }
+.devtool-match-list > p { margin: 0; color: #6f8288; font-size: 12px; }
+.devtool-match { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid #d8e4e4; border-radius: 6px; background: #fbfdfc; }
+.devtool-match span, .devtool-match small { color: #647b83; font-size: 11px; }
+.devtool-match code { color: #1b4650; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 1060px) {
+  .devtool-layout { grid-template-columns: 1fr; }
+  .devtool-list { position: static; max-height: none; }
+  .devtool-list-scroll { display: flex; flex-wrap: wrap; gap: 5px; overflow: visible; }
+  .devtool-group { display: contents; }
+  .devtool-group-label { display: none; }
+  .devtool-list-item { flex: 0 0 auto; width: auto; white-space: nowrap; }
+  .devtool-current { display: none; }
+}
+@media (max-width: 640px) {
+  .devtool-grid-2, .devtool-grid-3, .devtool-output-grid { grid-template-columns: 1fr; }
+  .devtool-inline { align-items: stretch; flex-direction: column; }
+  .devtool-inline .button { align-self: flex-start; }
+  .devtool-panel-head { padding: 18px; }
+  .devtool-panel-body { padding: 18px; }
+  .devtool-list-item { min-height: 40px; }
+  .devtool-datetime-trigger { flex-basis: 42px; min-height: 42px; }
+  .devtool-calendar-head button { flex-basis: 34px; width: 34px; min-height: 38px; }
+  .devtool-calendar-grid button { min-height: 40px; font-size: 12px; }
+  .devtool-calendar-time input { width: 46px; min-height: 40px; }
+  .devtool-calendar-footer button { min-height: 40px; }
+}

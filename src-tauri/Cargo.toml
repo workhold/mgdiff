@@ -1,0 +1,20 @@
+[package]
+name = "mgdiff"
+version = "0.1.0"
+description = "A local desktop diff tool"
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "mgdiff_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+rfd = "0.18"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.11"
+walkdir = "2"
