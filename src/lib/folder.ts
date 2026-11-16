@@ -35,9 +35,11 @@ async function sameContents(left: File, right: File): Promise<boolean> {
 export async function compareFolderFiles(
   leftFiles: File[],
   rightFiles: File[],
+  leftPaths?: string[],
+  rightPaths?: string[],
 ): Promise<FolderComparisonEntry[]> {
-  const leftByPath = new Map(leftFiles.map((file) => [relativePath(file), file]))
-  const rightByPath = new Map(rightFiles.map((file) => [relativePath(file), file]))
+  const leftByPath = new Map(leftFiles.map((file, index) => [leftPaths?.[index] ?? relativePath(file), file]))
+  const rightByPath = new Map(rightFiles.map((file, index) => [rightPaths?.[index] ?? relativePath(file), file]))
   const paths = [...new Set([...leftByPath.keys(), ...rightByPath.keys()])].sort((a, b) =>
     a.localeCompare(b),
   )

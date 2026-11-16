@@ -3,6 +3,7 @@ import { ArrowLeftRight, ArrowRight, Check, ChevronRight, File, FileText, Filter
 import { invoke } from '@tauri-apps/api/core'
 import { compareFolderFiles } from '../lib/folder'
 import { formatBytes, isTauriApp, isTextFileName } from '../lib/files'
+import { useWorkspaceState } from '../lib/workspace-state'
 import type { TextPair } from './TextCompare'
 import Dropdown from './Dropdown'
 import type { HistoryRecordInput } from '../lib/history'
@@ -10,7 +11,7 @@ import { useLanguage } from '../i18n'
 
 type NativeEntry = { relativePath: string; size: number; hash: string; absolutePath: string }
 type NativeSelection = { folderPath: string; entries: NativeEntry[] }
-type FolderSource = { kind: 'web'; name: string; files: File[] } | { kind: 'native'; name: string; entries: NativeEntry[] }
+type FolderSource = { kind: 'web'; name: string; files: File[]; paths: string[] } | { kind: 'native'; name: string; folderPath: string; entries: NativeEntry[]; available?: boolean }
 type FolderRow = { path: string; status: 'same' | 'changed' | 'left-only' | 'right-only'; left?: File | NativeEntry; right?: File | NativeEntry; sizeLeft?: number; sizeRight?: number }
 type FilterValue = 'all' | FolderRow['status']
 type DirectoryNode = {
@@ -27,7 +28,7 @@ type DirectoryNode = {
 type TreeRow = { kind: 'directory'; node: DirectoryNode; depth: number; expanded: boolean } | { kind: 'file'; row: FolderRow; depth: number }
 type Props = { onOpenTextPair: (pair: TextPair) => void; onCompared?: (record: HistoryRecordInput) => void; initialFolderSelections?: { left: NativeSelection; right: NativeSelection }; autoCompare?: boolean; recordAutoCompare?: boolean; onFileNameChange?: (fileName: string | null) => void }
 
-type FolderErrorCode = 'compare' | 'pick' | 'open' | 'not-text' | 'outside-folders' | 'not-file' | 'expected-file' | 'expected-directory' | 'mixed-types'
+type FolderErrorCode = 'compare' | 'pick' | 'restore' | 'open' | 'not-text' | 'outside-folders' | 'not-file' | 'expected-file' | 'expected-directory' | 'mixed-types'
 type FolderError = { code: FolderErrorCode; path?: string }
 type Translate = (zh: string, en: string) => string
 
@@ -47,6 +48,7 @@ function errorLabel(error: FolderError, tr: Translate): string {
   const labels: Record<FolderErrorCode, string> = {
     compare: tr('文件夹对比失败', 'Folder comparison failed'),
     pick: tr('系统文件夹选择失败，请使用下方备用方式', 'System folder picker failed. Use the alternate picker below.'),
+    restore: tr('无法恢复文件夹，请重新选择', 'Unable to restore the folder. Please select it again.'),
     open: tr('打开文件失败', 'Failed to open file'),
     'not-text': tr('该文件不是常见文本格式，请在对应的比较模式中打开。', 'This is not a common text format. Open it in the matching comparison mode.'),
     'outside-folders': tr('文件不在已选文件夹内', 'File is outside the selected folders'),
@@ -67,7 +69,13 @@ function fileCountLabel(count: number, tr: (zh: string, en: string) => string): 
 }
 
 function nativeSource(selection: NativeSelection): FolderSource {
-  return { kind: 'native', name: selection.folderPath.split(/[\\/]/).filter(Boolean).at(-1) ?? selection.folderPath, entries: selection.entries }
+  return { kind: 'native', name: selection.folderPath.split(/[\\/]/).filter(Boolean).at(-1) ?? selection.folderPath, folderPath: selection.folderPath, entries: selection.entries, available: true }
+}
+
+function sourceReady(source: FolderSource | null): source is FolderSource {
+  return !!source && (source.kind === 'native'
+    ? source.available !== false
+    : Array.isArray(source.files) && source.files.every((file) => file instanceof File) && Array.isArray(source.paths) && source.paths.length === source.files.length)
 }
 
 export default function FolderCompare({ onOpenTextPair, onCompared, initialFolderSelections, autoCompare = false, recordAutoCompare = false, onFileNameChange }: Props) {
@@ -75,17 +83,20 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
   const rootRef = useRef<HTMLDivElement>(null)
   const onFileNameChangeRef = useRef(onFileNameChange)
   onFileNameChangeRef.current = onFileNameChange
-  const [left, setLeft] = useState<FolderSource | null>(() => initialFolderSelections ? nativeSource(initialFolderSelections.left) : null)
-  const [right, setRight] = useState<FolderSource | null>(() => initialFolderSelections ? nativeSource(initialFolderSelections.right) : null)
+  const [left, setLeft] = useWorkspaceState<FolderSource | null>('folder.left', () => initialFolderSelections ? nativeSource(initialFolderSelections.left) : null)
+  const [right, setRight] = useWorkspaceState<FolderSource | null>('folder.right', () => initialFolderSelections ? nativeSource(initialFolderSelections.right) : null)
   const [rows, setRows] = useState<FolderRow[] | null>(null)
   const [resultSources, setResultSources] = useState<{ left: FolderSource; right: FolderSource } | null>(null)
   const [showResult, setShowResult] = useState(false)
+  const [restoreResult, setRestoreResult] = useWorkspaceState('folder.showResult', false)
   const [loading, setLoading] = useState(false)
   const [picking, setPicking] = useState<'left' | 'right' | null>(null)
+  const [restoringFolders, setRestoringFolders] = useState(() => !autoCompare && [left, right].some((source) => source?.kind === 'native'))
   const [error, setError] = useState<FolderError | null>(null)
-  const [filter, setFilter] = useState<FilterValue>('all')
-  const [search, setSearch] = useState('')
-  const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(() => new Set())
+  const [filter, setFilter] = useWorkspaceState<FilterValue>('folder.filter', 'all')
+  const [search, setSearch] = useWorkspaceState('folder.search', '')
+  const [expandedDirectoryPaths, setExpandedDirectoryPaths] = useWorkspaceState<string[]>('folder.expandedDirectories', [])
+  const expandedDirectories = useMemo(() => new Set(expandedDirectoryPaths), [expandedDirectoryPaths])
   const leftInput = useRef<HTMLInputElement>(null)
   const rightInput = useRef<HTMLInputElement>(null)
   const autoStarted = useRef(false)
@@ -97,20 +108,52 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
   }, [selectedFileName])
 
   useEffect(() => {
-    if (autoCompare && initialFolderSelections && !autoStarted.current) {
-      autoStarted.current = true
-      void startCompare({ left: nativeSource(initialFolderSelections.left), right: nativeSource(initialFolderSelections.right) }, recordAutoCompare)
+    if (!restoringFolders) return
+    let cancelled = false
+    const restore = async (source: FolderSource | null): Promise<FolderSource | null> => {
+      if (source?.kind !== 'native') return source
+      if (!source.folderPath) return { ...source, entries: [], available: false }
+      try {
+        return nativeSource(await invoke<NativeSelection>('restore_folder_entries', { folderPath: source.folderPath }))
+      } catch {
+        return { ...source, entries: [], available: false }
+      }
     }
-    // External launch mounts this component with a new key.
+    void Promise.all([restore(left), restore(right)]).then(([restoredLeft, restoredRight]) => {
+      if (cancelled) return
+      setLeft(restoredLeft)
+      setRight(restoredRight)
+      if ([restoredLeft, restoredRight].some((source) => source?.kind === 'native' && source.available === false)) {
+        setRestoreResult(false)
+        setError({ code: 'restore' })
+      }
+      setRestoringFolders(false)
+    })
+    return () => { cancelled = true }
+    // Native folders must be scanned again so Rust can authorize file reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (autoStarted.current || restoringFolders) return
+    if (autoCompare && initialFolderSelections) {
+      autoStarted.current = true
+      void startCompare({ left: nativeSource(initialFolderSelections.left), right: nativeSource(initialFolderSelections.right) }, recordAutoCompare)
+    } else if (restoreResult && sourceReady(left) && sourceReady(right)) {
+      autoStarted.current = true
+      void startCompare({ left, right }, false, true)
+    }
+    // A restored tab has no seed; recompute its result without adding history.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCompare, initialFolderSelections, left, right, recordAutoCompare, restoreResult, restoringFolders])
 
   useEffect(() => {
     rootRef.current?.closest('.main-scroll')?.scrollTo(0, 0)
   }, [showResult])
 
-  async function startCompare(sources = left && right ? { left, right } : null, record = true) {
+  async function startCompare(sources = sourceReady(left) && sourceReady(right) ? { left, right } : null, record = true, restoring = false) {
     if (!sources || loading || picking) return
+    autoStarted.current = true
     const token = ++compareToken.current
     setError(null)
     setLoading(true)
@@ -119,8 +162,9 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
       if (token !== compareToken.current) return
       setRows(result)
       setResultSources(sources)
-      setExpandedDirectories(new Set())
+      if (!restoring) setExpandedDirectoryPaths([])
       setShowResult(true)
+      setRestoreResult(true)
       const differences = result.filter((row) => row.status !== 'same').length
       if (record) onCompared?.({ mode: 'folder', leftName: sources.left.name || '—', rightName: sources.right.name || '—', summary: `${differences} 个文件不同`, payload: { kind: 'folder' } })
     } catch (cause) {
@@ -140,12 +184,8 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
   const treeRows = useMemo(() => flattenFolderTree(tree, visibleRows, expandedDirectories, Boolean(searchQuery), language), [tree, visibleRows, expandedDirectories, searchQuery, language])
 
   function toggleDirectory(path: string) {
-    setExpandedDirectories((current) => {
-      const next = new Set(current)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      return next
-    })
+    setExpandedDirectoryPaths((current) => current.includes(path)
+      ? current.filter((entry) => entry !== path) : [...current, path])
   }
 
   async function pick(side: 'left' | 'right') {
@@ -158,11 +198,10 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
     try {
       const selection = await invoke<NativeSelection | null>('pick_folder_entries')
       if (!selection) return
-      const segments = selection.folderPath.split(/[\\/]/).filter(Boolean)
-      const name = segments.at(-1) ?? selection.folderPath
-      const source: FolderSource = { kind: 'native', name, entries: selection.entries }
+      const source = nativeSource(selection)
       ++compareToken.current
       setLoading(false)
+      setRestoreResult(false)
       if (side === 'left') setLeft(source)
       else setRight(source)
     } catch (cause) {
@@ -176,9 +215,10 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
     const selected = Array.from(files ?? [])
     if (!selected.length) return
     const name = selected[0].webkitRelativePath.split('/')[0]
-    const source: FolderSource = { kind: 'web', name, files: selected }
+    const source: FolderSource = { kind: 'web', name, files: selected, paths: selected.map(filePath) }
     ++compareToken.current
     setLoading(false)
+    setRestoreResult(false)
     if (side === 'left') setLeft(source)
     else setRight(source)
   }
@@ -204,9 +244,9 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
             const inputRef = side === 'left' ? leftInput : rightInput
             return <div key={side}>
               <div className="file-side-label"><span className={`side-dot ${side}`} /> {side === 'left' ? tr('原始文件夹', 'Original folder') : tr('修改后文件夹', 'Modified folder')}</div>
-              <button className={`folder-picker ${source ? 'has-folder' : ''}`} type="button" disabled={picking !== null} onClick={() => void pick(side)}>
+              <button className={`folder-picker ${source ? 'has-folder' : ''}`} type="button" disabled={picking !== null || restoringFolders} onClick={() => void pick(side)}>
                 <span className="folder-picker__icon">{source ? <FolderOpen size={25} /> : <FolderClosed size={25} />}</span>
-                <span className="folder-picker__copy"><strong>{picking === side ? tr('正在扫描文件…', 'Scanning files…') : source ? sourceName(source, tr) : tr('选择文件夹', 'Select folder')}</strong><small>{source ? `${fileCountLabel(source.kind === 'web' ? source.files.length : source.entries.length, tr)} · ${tr('点击更换', 'Click to change')}` : tr('选择本机文件夹，自动扫描所有子目录', 'Choose a local folder to scan all subfolders')}</small></span>
+                <span className="folder-picker__copy"><strong>{picking === side || restoringFolders && source?.kind === 'native' ? tr('正在扫描文件…', 'Scanning files…') : source ? sourceName(source, tr) : tr('选择文件夹', 'Select folder')}</strong><small>{source && !sourceReady(source) ? tr('请重新选择此文件夹', 'Please select this folder again') : source ? `${fileCountLabel(source.kind === 'web' ? source.files.length : source.entries.length, tr)} · ${tr('点击更换', 'Click to change')}` : tr('选择本机文件夹，自动扫描所有子目录', 'Choose a local folder to scan all subfolders')}</small></span>
                 <ChevronRight size={17} />
               </button>
               <input ref={inputRef} className="visually-hidden" type="file" multiple {...{ webkitdirectory: '' }} aria-label={side === 'left' ? tr('选择原始文件夹', 'Select original folder') : tr('选择修改后文件夹', 'Select modified folder')} onChange={(event) => { pickedFiles(side, event.target.files); event.currentTarget.value = '' }} />
@@ -215,13 +255,13 @@ export default function FolderCompare({ onOpenTextPair, onCompared, initialFolde
           })}
         </div>
         {error && <div className="inline-error" role="alert">{errorLabel(error, tr)}</div>}
-        <div className="compare-action-bar"><span>{tr('选择两个文件夹后开始递归比对。', 'Choose two folders to start a recursive comparison.')}</span><button className="button button-primary compare-start-button" type="button" disabled={!left || !right || Boolean(picking) || loading} onClick={() => void startCompare()}>{loading ? tr('正在比对…', 'Comparing…') : tr('开始比对', 'Compare')} <ArrowRight size={16} /></button></div>
+        <div className="compare-action-bar"><span>{tr('选择两个文件夹后开始递归比对。', 'Choose two folders to start a recursive comparison.')}</span><button className="button button-primary compare-start-button" type="button" disabled={!sourceReady(left) || !sourceReady(right) || Boolean(picking) || loading || restoringFolders} onClick={() => void startCompare()}>{loading || restoringFolders ? tr('正在比对…', 'Comparing…') : tr('开始比对', 'Compare')} <ArrowRight size={16} /></button></div>
       </div>
       )}
 
       {showResult && resultSources && (
       <div className="workspace-card result-card folder-result">
-        <div className="compare-result-header"><div><div className="eyebrow">{tr('文件夹对比结果', 'Folder comparison results')}</div><div className="compare-result-names"><span title={sourceName(resultSources.left, tr)}>{sourceName(resultSources.left, tr)}</span><ArrowLeftRight size={16} /><span title={sourceName(resultSources.right, tr)}>{sourceName(resultSources.right, tr)}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setLoading(false); setShowResult(false) }}>{tr('返回修改', 'Back to edit')}</button><button className="button button-primary" type="button" disabled={loading} onClick={() => void startCompare()}><RotateCcw size={15} /> {loading ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
+        <div className="compare-result-header"><div><div className="eyebrow">{tr('文件夹对比结果', 'Folder comparison results')}</div><div className="compare-result-names"><span title={sourceName(resultSources.left, tr)}>{sourceName(resultSources.left, tr)}</span><ArrowLeftRight size={16} /><span title={sourceName(resultSources.right, tr)}>{sourceName(resultSources.right, tr)}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setLoading(false); setShowResult(false); setRestoreResult(false) }}>{tr('返回修改', 'Back to edit')}</button><button className="button button-primary" type="button" disabled={loading} onClick={() => void startCompare()}><RotateCcw size={15} /> {loading ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
         {error && <div className="inline-error" role="alert">{errorLabel(error, tr)}</div>}
         <div className="card-titlebar result-titlebar"><div><div className="eyebrow">{tr('目录差异', 'Folder differences')}</div><h2>{tr('文件夹对比结果', 'Folder comparison results')} {rows && <span className="result-count">{fileCountLabel(rows.length, tr)}</span>}</h2></div></div>
         {!rows ? <div className="empty-result"><FolderClosed size={29} /><strong>{tr('暂无比较结果', 'No comparison results yet')}</strong></div> : <>
@@ -372,26 +412,33 @@ async function fileHash(file: File): Promise<string> {
 
 async function compareSources(left: FolderSource, right: FolderSource): Promise<FolderRow[]> {
   if (left.kind === 'web' && right.kind === 'web') {
-    const entries = await compareFolderFiles(left.files, right.files)
+    const entries = await compareFolderFiles(left.files, right.files, left.paths, right.paths)
     return entries.map((entry) => ({ ...entry, sizeLeft: entry.left?.size, sizeRight: entry.right?.size }))
   }
-  const leftEntries = new Map<string, File | NativeEntry>(left.kind === 'web' ? left.files.map((file): [string, File | NativeEntry] => [filePath(file), file]) : left.entries.map((entry): [string, File | NativeEntry] => [entry.relativePath, entry]))
-  const rightEntries = new Map<string, File | NativeEntry>(right.kind === 'web' ? right.files.map((file): [string, File | NativeEntry] => [filePath(file), file]) : right.entries.map((entry): [string, File | NativeEntry] => [entry.relativePath, entry]))
+  const leftEntries = new Map<string, File | NativeEntry>(left.kind === 'web' ? left.files.map((file, index): [string, File | NativeEntry] => [left.paths[index] ?? filePath(file), file]) : left.entries.map((entry): [string, File | NativeEntry] => [entry.relativePath, entry]))
+  const rightEntries = new Map<string, File | NativeEntry>(right.kind === 'web' ? right.files.map((file, index): [string, File | NativeEntry] => [right.paths[index] ?? filePath(file), file]) : right.entries.map((entry): [string, File | NativeEntry] => [entry.relativePath, entry]))
   const paths = [...new Set([...leftEntries.keys(), ...rightEntries.keys()])].sort((a, b) => a.localeCompare(b))
-  const output: FolderRow[] = []
-  for (const path of paths) {
-    const leftEntry = leftEntries.get(path)
-    const rightEntry = rightEntries.get(path)
-    let status: FolderRow['status']
-    if (!leftEntry) status = 'right-only'
-    else if (!rightEntry) status = 'left-only'
-    else if (leftEntry.size !== rightEntry.size) status = 'changed'
-    else {
-      const [leftHash, rightHash] = await Promise.all(['absolutePath' in leftEntry ? leftEntry.hash : fileHash(leftEntry), 'absolutePath' in rightEntry ? rightEntry.hash : fileHash(rightEntry)])
-      status = leftHash === rightHash ? 'same' : 'changed'
+  const output = new Array<FolderRow>(paths.length)
+  let next = 0
+  async function compareNext(): Promise<void> {
+    while (next < paths.length) {
+      const index = next++
+      const path = paths[index]
+      const leftEntry = leftEntries.get(path)
+      const rightEntry = rightEntries.get(path)
+      let status: FolderRow['status']
+      if (!leftEntry) status = 'right-only'
+      else if (!rightEntry) status = 'left-only'
+      else if (leftEntry.size !== rightEntry.size) status = 'changed'
+      else {
+        const [leftHash, rightHash] = await Promise.all(['absolutePath' in leftEntry ? leftEntry.hash : fileHash(leftEntry), 'absolutePath' in rightEntry ? rightEntry.hash : fileHash(rightEntry)])
+        status = leftHash === rightHash ? 'same' : 'changed'
+      }
+      output[index] = { path, status, left: leftEntry, right: rightEntry, sizeLeft: leftEntry?.size, sizeRight: rightEntry?.size }
     }
-    output.push({ path, status, left: leftEntry, right: rightEntry, sizeLeft: leftEntry?.size, sizeRight: rightEntry?.size })
   }
+  const workers = left.kind === 'web' && right.kind === 'web' ? Math.min(4, paths.length) : 1
+  await Promise.all(Array.from({ length: workers }, () => compareNext()))
   return output
 }
 

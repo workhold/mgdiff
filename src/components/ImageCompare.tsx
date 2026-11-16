@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { saveBinaryFile } from '../lib/files'
 import type { HistoryRecordInput } from '../lib/history'
+import { useWorkspaceState } from '../lib/workspace-state'
 import { displayFileName, useLanguage } from '../i18n'
 import './image-compare.css'
 
@@ -188,18 +189,21 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
   const rootRef = useRef<HTMLElement>(null)
   const onFileNameChangeRef = useRef(onFileNameChange)
   onFileNameChangeRef.current = onFileNameChange
+  const [leftFile, setLeftFile] = useWorkspaceState<File | null>('image.leftFile', initialFiles?.leftFile ?? null)
+  const [rightFile, setRightFile] = useWorkspaceState<File | null>('image.rightFile', initialFiles?.rightFile ?? null)
   const [left, setLeft] = useState<ImageAsset | null>(null)
   const [right, setRight] = useState<ImageAsset | null>(null)
-  const [leftSelectedName, setLeftSelectedName] = useState(initialFiles?.leftFile.name ?? null)
-  const [rightSelectedName, setRightSelectedName] = useState(initialFiles?.rightFile.name ?? null)
-  const [view, setView] = useState<ViewMode>('side-by-side')
+  const leftSelectedName = leftFile?.name ?? null
+  const rightSelectedName = rightFile?.name ?? null
+  const [view, setView] = useWorkspaceState<ViewMode>('image.view', 'side-by-side')
   const [flickerRight, setFlickerRight] = useState(false)
-  const [opacity, setOpacity] = useState(50)
-  const [split, setSplit] = useState(50)
-  const [tolerance, setTolerance] = useState(12)
+  const [opacity, setOpacity] = useWorkspaceState('image.opacity', 50)
+  const [split, setSplit] = useWorkspaceState('image.split', 50)
+  const [tolerance, setTolerance] = useWorkspaceState('image.tolerance', 12)
   const [comparison, setComparison] = useState<Comparison | null>(null)
   const [resultAssets, setResultAssets] = useState<{ left: ImageAsset; right: ImageAsset; tolerance: number } | null>(null)
   const [showResult, setShowResult] = useState(false)
+  const [restoreResult, setRestoreResult] = useWorkspaceState('image.showResult', false)
   const [computing, setComputing] = useState(false)
   const [error, setError] = useState<Error | string>('')
   const [dragging, setDragging] = useState<Side | null>(null)
@@ -228,11 +232,18 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
     if (!file) return
     ++compareToken.current
     setComputing(false)
+    setRestoreResult(false)
     if (!file.type.startsWith('image/')) {
       setError(new ImageCompareError('请选择图片文件（如 PNG、JPG、WebP 或 GIF）', 'Choose an image file, such as PNG, JPG, WebP, or GIF.'))
       return
     }
+    if (side === 'left') setLeftFile(file)
+    else setRightFile(file)
     const token = ++loadToken.current[side]
+    if (urls.current[side]) URL.revokeObjectURL(urls.current[side])
+    urls.current[side] = null
+    if (side === 'left') setLeft(null)
+    else setRight(null)
     const url = URL.createObjectURL(file)
     setError('')
     try {
@@ -243,37 +254,48 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
       }
       if (urls.current[side]) URL.revokeObjectURL(urls.current[side])
       urls.current[side] = url
-      if (side === 'left') { setLeft(asset); setLeftSelectedName(file.name) }
-      else { setRight(asset); setRightSelectedName(file.name) }
+      if (side === 'left') setLeft(asset)
+      else setRight(asset)
     } catch (cause) {
       URL.revokeObjectURL(url)
       if (token === loadToken.current[side]) {
+        if (side === 'left') setLeftFile((current) => current === file ? null : current)
+        else setRightFile((current) => current === file ? null : current)
         setError(cause instanceof ImageCompareError ? cause : new ImageCompareError('图片加载失败', 'Failed to load image'))
       }
     }
-  }, [])
+  }, [setLeftFile, setRightFile, setRestoreResult])
 
   useEffect(() => {
-    if (!autoCompare || !initialFiles) return
+    const initialLeft = autoCompare && initialFiles ? initialFiles.leftFile : leftFile
+    const initialRight = autoCompare && initialFiles ? initialFiles.rightFile : rightFile
+    if (!initialLeft && !initialRight) return
     let cancelled = false
-    const leftUrl = URL.createObjectURL(initialFiles.leftFile)
-    const rightUrl = URL.createObjectURL(initialFiles.rightFile)
-    void Promise.all([loadImage(initialFiles.leftFile, leftUrl), loadImage(initialFiles.rightFile, rightUrl)])
+    const leftUrl = initialLeft ? URL.createObjectURL(initialLeft) : null
+    const rightUrl = initialRight ? URL.createObjectURL(initialRight) : null
+    void Promise.all([
+      initialLeft && leftUrl ? loadImage(initialLeft, leftUrl) : Promise.resolve(null),
+      initialRight && rightUrl ? loadImage(initialRight, rightUrl) : Promise.resolve(null),
+    ])
       .then(([leftAsset, rightAsset]) => {
         if (cancelled) return
-        urls.current.left = leftUrl
-        urls.current.right = rightUrl
-        setLeft(leftAsset)
-        setRight(rightAsset)
-        void startCompare({ left: leftAsset, right: rightAsset }, recordAutoCompare)
+        if (leftAsset) { urls.current.left = leftUrl; setLeft(leftAsset) }
+        if (rightAsset) { urls.current.right = rightUrl; setRight(rightAsset) }
+        if (leftAsset && rightAsset && (autoCompare || restoreResult)) {
+          void startCompare({ left: leftAsset, right: rightAsset }, autoCompare ? recordAutoCompare : false)
+        }
       })
-      .catch((cause: unknown) => { if (!cancelled) setError(cause instanceof ImageCompareError ? cause : new ImageCompareError('图片加载失败', 'Failed to load image')) })
+      .catch((cause: unknown) => {
+        if (leftUrl && urls.current.left !== leftUrl) URL.revokeObjectURL(leftUrl)
+        if (rightUrl && urls.current.right !== rightUrl) URL.revokeObjectURL(rightUrl)
+        if (!cancelled) setError(cause instanceof ImageCompareError ? cause : new ImageCompareError('图片加载失败', 'Failed to load image'))
+      })
     return () => {
       cancelled = true
-      if (urls.current.left !== leftUrl) URL.revokeObjectURL(leftUrl)
-      if (urls.current.right !== rightUrl) URL.revokeObjectURL(rightUrl)
+      if (leftUrl && urls.current.left !== leftUrl) URL.revokeObjectURL(leftUrl)
+      if (rightUrl && urls.current.right !== rightUrl) URL.revokeObjectURL(rightUrl)
     }
-    // History replay mounts this component with a new key.
+    // Persisted Files need fresh image elements and object URLs after restart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -299,8 +321,9 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
     ++loadToken.current[side]
     if (urls.current[side]) URL.revokeObjectURL(urls.current[side])
     urls.current[side] = null
-    if (side === 'left') { setLeft(null); setLeftSelectedName(null) }
-    else { setRight(null); setRightSelectedName(null) }
+    if (side === 'left') { setLeft(null); setLeftFile(null) }
+    else { setRight(null); setRightFile(null) }
+    setRestoreResult(false)
     setError('')
   }
 
@@ -314,8 +337,8 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
     urls.current.right = oldLeftUrl
     setLeft(right)
     setRight(left)
-    setLeftSelectedName(rightSelectedName)
-    setRightSelectedName(leftSelectedName)
+    setLeftFile(rightFile)
+    setRightFile(leftFile)
   }
 
   const setSplitFromPointer = (clientX: number, element: HTMLElement) => {
@@ -335,6 +358,7 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
       setComparison(result)
       setResultAssets({ ...assets, tolerance })
       setShowResult(true)
+      setRestoreResult(true)
       if (record) onCompared?.({ mode: 'image', leftName: assets.left.file.name, rightName: assets.right.file.name, summary: `约 ${result.changedPercent.toFixed(1)}% 像素不同`, payload: { kind: 'files', leftFile: assets.left.file, rightFile: assets.right.file } })
     } catch (cause) {
       if (token === compareToken.current) setError(cause instanceof ImageCompareError ? cause : new ImageCompareError('对比图片时发生错误', 'An error occurred while comparing images'))
@@ -421,7 +445,7 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
                   <Upload size={15} />
                   {tr('选择图片', 'Choose image')}
                 </button>
-                {asset && (
+                {(asset || (side === 'left' ? leftFile : rightFile)) && (
                   <button
                     type="button"
                     className="image-compare__icon-button"
@@ -484,7 +508,7 @@ export default function ImageCompare({ initialFiles, autoCompare = false, record
       )}
 
       {showResult && resultAssets && <div className="image-compare__result">
-        <div className="compare-result-header"><div><div className="eyebrow">{tr('图片对比结果', 'Image comparison results')}</div><div className="compare-result-names"><span title={displayFileName(resultAssets.left.file.name, tr)}>{displayFileName(resultAssets.left.file.name, tr)}</span><ArrowLeftRight size={16} /><span title={displayFileName(resultAssets.right.file.name, tr)}>{displayFileName(resultAssets.right.file.name, tr)}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setComputing(false); setShowResult(false) }}>{tr('返回修改', 'Back to edit')}</button><button className="button button-primary" type="button" disabled={computing} onClick={() => void startCompare()}><RotateCcw size={15} /> {computing ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
+        <div className="compare-result-header"><div><div className="eyebrow">{tr('图片对比结果', 'Image comparison results')}</div><div className="compare-result-names"><span title={displayFileName(resultAssets.left.file.name, tr)}>{displayFileName(resultAssets.left.file.name, tr)}</span><ArrowLeftRight size={16} /><span title={displayFileName(resultAssets.right.file.name, tr)}>{displayFileName(resultAssets.right.file.name, tr)}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setComputing(false); setShowResult(false); setRestoreResult(false) }}>{tr('返回修改', 'Back to edit')}</button><button className="button button-primary" type="button" disabled={computing} onClick={() => void startCompare()}><RotateCcw size={15} /> {computing ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
         <div className="image-compare__result-head">
           <div className="image-compare__result-title">
             <strong>{tr('对比结果', 'Comparison results')}</strong>

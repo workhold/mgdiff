@@ -9,6 +9,7 @@ import {
   addDate, analyzeIp, convertBase, dateDifference, decodeBase64, decodeHtml, decodeJwt,
   encodeBase64, encodeHtml, formatJson, formatLocalDateTime, minifyJson, parseDateInput, parseTimestamp,
 } from '../lib/devtools'
+import { useWorkspaceState } from '../lib/workspace-state'
 import DateTimePicker from './DateTimePicker'
 import Dropdown from './Dropdown'
 import './developer-toolbox.css'
@@ -107,18 +108,18 @@ function Output({ label, value, multiline = false }: { label: string; value: str
 
 function JsonTool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('')
-  const [indent, setIndent] = useState(2)
-  const [output, setOutput] = useState('')
+  const [input, setInput] = useWorkspaceState('toolbox.json.input', '')
+  const [indent, setIndent] = useWorkspaceState('toolbox.json.indent', 2)
+  const [output, setOutput] = useWorkspaceState('toolbox.json.output', '')
   const [error, setError] = useState('')
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useWorkspaceState<'valid' | 'complete' | ''>('toolbox.json.status', '')
   function run(kind: 'format' | 'minify' | 'validate') {
     try {
       if (!input.trim()) throw new Error(tr('请输入 JSON', 'Enter JSON first'))
       const result = kind === 'minify' ? minifyJson(input) : formatJson(input, indent)
       setOutput(kind === 'validate' ? '' : result)
       setError('')
-      setStatus(kind === 'validate' ? tr('JSON 语法有效', 'Valid JSON syntax') : tr('转换完成', 'Conversion complete'))
+      setStatus(kind === 'validate' ? 'valid' : 'complete')
     } catch (cause) {
       setOutput('')
       setStatus('')
@@ -128,7 +129,7 @@ function JsonTool() {
   return <ToolPanel title={tr('JSON 格式化', 'JSON formatter')} description={tr('粘贴 JSON，检查语法并生成缩进或压缩版本。', 'Paste JSON to validate its syntax and create an indented or minified version.')}>
     <Field label={tr('输入 JSON', 'Input JSON')}><textarea className="devtool-textarea" value={input} onChange={(event) => { setInput(event.target.value); setOutput(''); setStatus(''); setError('') }} spellCheck={false} placeholder='{"name":"MG Diff","items":[1,2,3]}' /></Field>
     <div className="devtool-controls"><Field label={tr('缩进空格', 'Indent spaces')}><Dropdown value={String(indent)} onChange={(value) => { setIndent(Number(value)); setOutput(''); setStatus('') }} ariaLabel={tr('缩进空格', 'Indent spaces')} options={[{ value: '2', label: '2' }, { value: '4', label: '4' }, { value: '0', label: '0' }]} /></Field><div className="devtool-actions"><Action onClick={() => run('format')}><WandSparkles size={15} />{tr('格式化', 'Format')}</Action><Action onClick={() => run('minify')} secondary>{tr('压缩', 'Minify')}</Action><Action onClick={() => run('validate')} secondary>{tr('仅校验', 'Validate only')}</Action></div></div>
-    <Message error={error}>{status}</Message>
+    <Message error={error}>{status === 'valid' ? tr('JSON 语法有效', 'Valid JSON syntax') : status === 'complete' ? tr('转换完成', 'Conversion complete') : ''}</Message>
     {output && <Output label={tr('结果', 'Result')} value={output} multiline />}
     <p className="devtool-note">{tr('提示：重排 JSON 会按标准解析后重新生成；重复键及超出安全整数范围的数字可能发生变化。', 'Note: JSON is parsed and regenerated. Duplicate keys and numbers beyond the safe integer range may change.')}</p>
   </ToolPanel>
@@ -137,41 +138,42 @@ function JsonTool() {
 function TimestampTool() {
   const { language, tr } = useLanguage()
   const [initialNow] = useState(() => new Date())
-  const [input, setInput] = useState(String(initialNow.getTime()))
-  const [unit, setUnit] = useState<'auto' | 's' | 'ms'>('auto')
-  const [result, setResult] = useState<Date | null>(initialNow)
-  const [dateInput, setDateInput] = useState(formatLocalDateTime(initialNow, true))
+  const [input, setInput] = useWorkspaceState('toolbox.timestamp.input', String(initialNow.getTime()))
+  const [unit, setUnit] = useWorkspaceState<'auto' | 's' | 'ms'>('toolbox.timestamp.unit', 'auto')
+  const [resultTimestamp, setResultTimestamp] = useWorkspaceState<number | null>('toolbox.timestamp.result', initialNow.getTime())
+  const [dateInput, setDateInput] = useWorkspaceState('toolbox.timestamp.dateInput', formatLocalDateTime(initialNow, true))
   const [error, setError] = useState('')
+  const result = resultTimestamp === null ? null : new Date(resultTimestamp)
   function parse() {
     try {
       const date = parseTimestamp(input, unit)
-      setResult(date)
+      setResultTimestamp(date.getTime())
       setDateInput(formatLocalDateTime(date, true))
       setError('')
     }
-    catch (cause) { setResult(null); setError(errorMessage(cause)) }
+    catch (cause) { setResultTimestamp(null); setError(errorMessage(cause)) }
   }
   function fromDate() {
-    try { const date = parseDateInput(dateInput); setResult(date); setInput(String(date.getTime())); setUnit('ms'); setError('') }
-    catch (cause) { setResult(null); setError(errorMessage(cause)) }
+    try { const date = parseDateInput(dateInput); setResultTimestamp(date.getTime()); setInput(String(date.getTime())); setUnit('ms'); setError('') }
+    catch (cause) { setResultTimestamp(null); setError(errorMessage(cause)) }
   }
   function now() {
     const date = new Date()
     setInput(String(date.getTime()))
     setDateInput(formatLocalDateTime(date, true))
     setUnit('ms')
-    setResult(date)
+    setResultTimestamp(date.getTime())
     setError('')
   }
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   return <ToolPanel title={tr('时间戳转换', 'Timestamp converter')} description={tr('Unix 时间戳与本地日期互转，同时查看 UTC 时间。', 'Convert Unix timestamps and local dates, with UTC alongside.')}>
     <div className="devtool-timezone-row"><span>{tr('本机时区：', 'Device time zone: ')}{timezone}</span><Action onClick={now} secondary><Clock3 size={15} />{tr('设为当前时间', 'Set current time')}</Action></div>
     <h3 className="devtool-subheading">{tr('时间戳 → 时间', 'Timestamp → date and time')}</h3>
-    <div className="devtool-grid-2"><Field label={tr('Unix 时间戳', 'Unix timestamp')}><input value={input} onChange={(event) => { setInput(event.target.value); setResult(null); setError('') }} inputMode="numeric" placeholder="1731542400" /></Field><Field label={tr('单位', 'Unit')}><Dropdown value={unit} onChange={(value) => { setUnit(value as 'auto' | 's' | 'ms'); setResult(null); setError('') }} ariaLabel={tr('单位', 'Unit')} options={[{ value: 'auto', label: tr('自动识别', 'Auto detect') }, { value: 's', label: tr('秒', 'Seconds') }, { value: 'ms', label: tr('毫秒', 'Milliseconds') }]} /></Field></div>
+    <div className="devtool-grid-2"><Field label={tr('Unix 时间戳', 'Unix timestamp')}><input value={input} onChange={(event) => { setInput(event.target.value); setResultTimestamp(null); setError('') }} inputMode="numeric" placeholder="1731542400" /></Field><Field label={tr('单位', 'Unit')}><Dropdown value={unit} onChange={(value) => { setUnit(value as 'auto' | 's' | 'ms'); setResultTimestamp(null); setError('') }} ariaLabel={tr('单位', 'Unit')} options={[{ value: 'auto', label: tr('自动识别', 'Auto detect') }, { value: 's', label: tr('秒', 'Seconds') }, { value: 'ms', label: tr('毫秒', 'Milliseconds') }]} /></Field></div>
     <div className="devtool-actions"><Action onClick={parse}>{tr('转为日期时间', 'Convert to date and time')}</Action></div>
     <div className="devtool-divider" />
     <h3 className="devtool-subheading">{tr('时间 → 时间戳', 'Date and time → timestamp')}</h3>
-    <DateTimePicker label={tr('本地日期时间', 'Local date and time')} value={dateInput} onChange={(value) => { setDateInput(value); setResult(null); setError('') }} hint={tr('可手动输入，或点击日历选择；时区偏移可区分夏令时的重复时刻。', 'Type a date and time, or choose it from the calendar. The UTC offset disambiguates repeated daylight-saving times.')} includeOffset />
+    <DateTimePicker label={tr('本地日期时间', 'Local date and time')} value={dateInput} onChange={(value) => { setDateInput(value); setResultTimestamp(null); setError('') }} hint={tr('可手动输入，或点击日历选择；时区偏移可区分夏令时的重复时刻。', 'Type a date and time, or choose it from the calendar. The UTC offset disambiguates repeated daylight-saving times.')} includeOffset />
     <div className="devtool-actions"><Action onClick={fromDate}>{tr('转为时间戳', 'Convert to timestamp')}</Action></div>
     <Message error={error} />
     {result && <div className="devtool-output-grid"><Output label={tr('本地时间', 'Local time')} value={result.toLocaleString(language, { dateStyle: 'full', timeStyle: 'long' })} /><Output label="UTC / ISO 8601" value={result.toISOString()} /><Output label={tr('Unix 秒', 'Unix seconds')} value={String(Math.floor(result.getTime() / 1000))} /><Output label={tr('Unix 毫秒', 'Unix milliseconds')} value={String(result.getTime())} /></div>}
@@ -180,10 +182,10 @@ function TimestampTool() {
 
 function BaseTool() {
   const { tr } = useLanguage()
-  const [value, setValue] = useState('255')
-  const [fromBase, setFromBase] = useState(10)
-  const [toBase, setToBase] = useState(36)
-  const [results, setResults] = useState<{ base: number; value: string }[]>([])
+  const [value, setValue] = useWorkspaceState('toolbox.base.value', '255')
+  const [fromBase, setFromBase] = useWorkspaceState('toolbox.base.fromBase', 10)
+  const [toBase, setToBase] = useWorkspaceState('toolbox.base.toBase', 36)
+  const [results, setResults] = useWorkspaceState<{ base: number; value: string }[]>('toolbox.base.results', [])
   const [error, setError] = useState('')
   function run() {
     try {
@@ -204,8 +206,8 @@ function BaseTool() {
 
 function IpTool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('192.168.1.10/24')
-  const [result, setResult] = useState<ReturnType<typeof analyzeIp> | null>(null)
+  const [input, setInput] = useWorkspaceState('toolbox.ip.input', '192.168.1.10/24')
+  const [result, setResult] = useWorkspaceState<ReturnType<typeof analyzeIp> | null>('toolbox.ip.result', null)
   const [error, setError] = useState('')
   function run() {
     try { setResult(analyzeIp(input)); setError('') }
@@ -240,17 +242,18 @@ function IpTool() {
 
 function DateTool() {
   const { language, tr } = useLanguage()
-  const [source, setSource] = useState(formatLocalDateTime(new Date()))
-  const [amount, setAmount] = useState(1)
-  const [unit, setUnit] = useState<'days' | 'weeks' | 'months' | 'years'>('days')
-  const [calculated, setCalculated] = useState<Date | null>(null)
-  const [diffA, setDiffA] = useState(formatLocalDateTime(new Date()))
-  const [diffB, setDiffB] = useState(formatLocalDateTime(new Date(Date.now() + 86400000)))
-  const [difference, setDifference] = useState<ReturnType<typeof dateDifference> | null>(null)
+  const [source, setSource] = useWorkspaceState('toolbox.date.source', () => formatLocalDateTime(new Date()))
+  const [amount, setAmount] = useWorkspaceState('toolbox.date.amount', 1)
+  const [unit, setUnit] = useWorkspaceState<'days' | 'weeks' | 'months' | 'years'>('toolbox.date.unit', 'days')
+  const [calculatedTimestamp, setCalculatedTimestamp] = useWorkspaceState<number | null>('toolbox.date.calculated', null)
+  const [diffA, setDiffA] = useWorkspaceState('toolbox.date.diffA', () => formatLocalDateTime(new Date()))
+  const [diffB, setDiffB] = useWorkspaceState('toolbox.date.diffB', () => formatLocalDateTime(new Date(Date.now() + 86400000)))
+  const [difference, setDifference] = useWorkspaceState<ReturnType<typeof dateDifference> | null>('toolbox.date.difference', null)
   const [error, setError] = useState('')
+  const calculated = calculatedTimestamp === null ? null : new Date(calculatedTimestamp)
   function calculate(sign: number) {
-    try { setCalculated(addDate(source, sign * amount, unit)); setError('') }
-    catch (cause) { setCalculated(null); setError(errorMessage(cause)) }
+    try { setCalculatedTimestamp(addDate(source, sign * amount, unit).getTime()); setError('') }
+    catch (cause) { setCalculatedTimestamp(null); setError(errorMessage(cause)) }
   }
   function compare() {
     try { setDifference(dateDifference(diffA, diffB)); setError('') }
@@ -263,7 +266,7 @@ function DateTool() {
   const seconds = Math.floor((total % 60000) / 1000)
   return <ToolPanel title={tr('日期计算', 'Date calculator')} description={tr('在本地时间上加减日期，并计算两个时间点的间隔。', 'Add or subtract calendar dates and calculate the interval between two moments.')}>
     <h3 className="devtool-subheading">{tr('日期加减', 'Add or subtract')}</h3>
-    <div className="devtool-grid-3"><DateTimePicker label={tr('起始日期时间', 'Start date and time')} value={source} onChange={(value) => { setSource(value); setCalculated(null); setError('') }} /><Field label={tr('数量', 'Amount')}><input type="number" value={amount} onChange={(event) => { setAmount(Number(event.target.value)); setCalculated(null); setError('') }} /></Field><Field label={tr('单位', 'Unit')}><Dropdown value={unit} onChange={(value) => { setUnit(value as typeof unit); setCalculated(null); setError('') }} ariaLabel={tr('单位', 'Unit')} options={[{ value: 'days', label: tr('天', 'Days') }, { value: 'weeks', label: tr('周', 'Weeks') }, { value: 'months', label: tr('月', 'Months') }, { value: 'years', label: tr('年', 'Years') }]} /></Field></div>
+    <div className="devtool-grid-3"><DateTimePicker label={tr('起始日期时间', 'Start date and time')} value={source} onChange={(value) => { setSource(value); setCalculatedTimestamp(null); setError('') }} /><Field label={tr('数量', 'Amount')}><input type="number" value={amount} onChange={(event) => { setAmount(Number(event.target.value)); setCalculatedTimestamp(null); setError('') }} /></Field><Field label={tr('单位', 'Unit')}><Dropdown value={unit} onChange={(value) => { setUnit(value as typeof unit); setCalculatedTimestamp(null); setError('') }} ariaLabel={tr('单位', 'Unit')} options={[{ value: 'days', label: tr('天', 'Days') }, { value: 'weeks', label: tr('周', 'Weeks') }, { value: 'months', label: tr('月', 'Months') }, { value: 'years', label: tr('年', 'Years') }]} /></Field></div>
     <div className="devtool-actions"><Action onClick={() => calculate(1)}>{tr('加上', 'Add')}</Action><Action onClick={() => calculate(-1)} secondary>{tr('减去', 'Subtract')}</Action></div>
     {calculated && <Output label={tr('计算结果', 'Calculated date')} value={calculated.toLocaleString(language, { dateStyle: 'full', timeStyle: 'medium' })} />}
     <div className="devtool-divider" />
@@ -278,8 +281,8 @@ function DateTool() {
 
 function Base64Tool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('')
-  const [output, setOutput] = useState('')
+  const [input, setInput] = useWorkspaceState('toolbox.base64.input', '')
+  const [output, setOutput] = useWorkspaceState('toolbox.base64.output', '')
   const [error, setError] = useState('')
   function run(mode: 'encode' | 'decode') {
     try {
@@ -297,25 +300,26 @@ function Base64Tool() {
 
 function UrlTool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('')
-  const [output, setOutput] = useState('')
-  const [parts, setParts] = useState<URL | null>(null)
+  const [input, setInput] = useWorkspaceState('toolbox.url.input', '')
+  const [output, setOutput] = useWorkspaceState('toolbox.url.output', '')
+  const [partsUrl, setPartsUrl] = useWorkspaceState<string | null>('toolbox.url.parts', null)
   const [error, setError] = useState('')
+  const parts = partsUrl === null ? null : new URL(partsUrl)
   function run(mode: 'encode' | 'decode' | 'parse') {
     try {
       if (!input) throw new Error(tr('请输入内容', 'Enter a value first'))
       if (mode === 'parse') {
-        setParts(new URL(input))
+        setPartsUrl(new URL(input).href)
         setOutput('')
       } else {
         setOutput(mode === 'encode' ? encodeURIComponent(input) : decodeURIComponent(input))
-        setParts(null)
+        setPartsUrl(null)
       }
       setError('')
-    } catch (cause) { setParts(null); setOutput(''); setError(errorMessage(cause)) }
+    } catch (cause) { setPartsUrl(null); setOutput(''); setError(errorMessage(cause)) }
   }
   return <ToolPanel title={tr('URL 编解码与解析', 'URL encoding and parsing')} description={tr('对 URL 组件进行百分号编解码，也可拆解完整网址。', 'Percent-encode URL components or inspect the parts of a full URL.')}>
-    <Field label={tr('文本或完整网址', 'Text or full URL')}><textarea className="devtool-textarea devtool-textarea--short" value={input} onChange={(event) => { setInput(event.target.value); setOutput(''); setParts(null); setError('') }} spellCheck={false} placeholder="https://example.com/search?q=hello%20world" /></Field>
+    <Field label={tr('文本或完整网址', 'Text or full URL')}><textarea className="devtool-textarea devtool-textarea--short" value={input} onChange={(event) => { setInput(event.target.value); setOutput(''); setPartsUrl(null); setError('') }} spellCheck={false} placeholder="https://example.com/search?q=hello%20world" /></Field>
     <div className="devtool-actions"><Action onClick={() => run('encode')}>{tr('编码组件', 'Encode component')}</Action><Action onClick={() => run('decode')} secondary>{tr('解码组件', 'Decode component')}</Action><Action onClick={() => run('parse')} secondary>{tr('解析网址', 'Parse URL')}</Action></div>
     <Message error={error} />
     {output && <Output label={tr('结果', 'Result')} value={output} multiline />}
@@ -333,8 +337,8 @@ function UrlTool() {
 
 function HtmlTool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('')
-  const [output, setOutput] = useState('')
+  const [input, setInput] = useWorkspaceState('toolbox.html.input', '')
+  const [output, setOutput] = useWorkspaceState('toolbox.html.output', '')
   const [error, setError] = useState('')
   function run(mode: 'encode' | 'decode') {
     try { setOutput(mode === 'encode' ? encodeHtml(input) : decodeHtml(input)); setError('') }
@@ -351,9 +355,9 @@ function HtmlTool() {
 
 function HashTool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('')
-  const [algorithm, setAlgorithm] = useState<'SHA-256' | 'SHA-384' | 'SHA-512'>('SHA-256')
-  const [output, setOutput] = useState('')
+  const [input, setInput] = useWorkspaceState('toolbox.hash.input', '')
+  const [algorithm, setAlgorithm] = useWorkspaceState<'SHA-256' | 'SHA-384' | 'SHA-512'>('toolbox.hash.algorithm', 'SHA-256')
+  const [output, setOutput] = useWorkspaceState('toolbox.hash.output', '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function run() {
@@ -387,8 +391,8 @@ function uuidV4(): string {
 
 function UuidTool() {
   const { tr } = useLanguage()
-  const [count, setCount] = useState(5)
-  const [output, setOutput] = useState<string[]>([])
+  const [count, setCount] = useWorkspaceState('toolbox.uuid.count', 5)
+  const [output, setOutput] = useWorkspaceState<string[]>('toolbox.uuid.output', [])
   const [error, setError] = useState('')
   function generate() {
     try {
@@ -406,8 +410,8 @@ function UuidTool() {
 
 function JwtTool() {
   const { tr } = useLanguage()
-  const [input, setInput] = useState('')
-  const [result, setResult] = useState<{ header: Record<string, unknown>; payload: Record<string, unknown>; signature: string } | null>(null)
+  const [input, setInput] = useWorkspaceState('toolbox.jwt.input', '')
+  const [result, setResult] = useWorkspaceState<{ header: Record<string, unknown>; payload: Record<string, unknown>; signature: string } | null>('toolbox.jwt.result', null)
   const [error, setError] = useState('')
   function run() {
     try {
@@ -448,10 +452,10 @@ function runRegex(pattern: string, flags: string, input: string): Promise<RegexM
 
 function RegexTool() {
   const { tr } = useLanguage()
-  const [pattern, setPattern] = useState('')
-  const [flags, setFlags] = useState('g')
-  const [input, setInput] = useState('')
-  const [matches, setMatches] = useState<RegexMatch[] | null>(null)
+  const [pattern, setPattern] = useWorkspaceState('toolbox.regex.pattern', '')
+  const [flags, setFlags] = useWorkspaceState('toolbox.regex.flags', 'g')
+  const [input, setInput] = useWorkspaceState('toolbox.regex.input', '')
+  const [matches, setMatches] = useWorkspaceState<RegexMatch[] | null>('toolbox.regex.matches', null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function run() {
@@ -481,8 +485,8 @@ const panelComponents: Record<ToolId, () => ReactNode> = {
 
 export default function DeveloperToolbox() {
   const { tr } = useLanguage()
-  const [active, setActive] = useState<ToolId>('json')
-  const [query, setQuery] = useState('')
+  const [active, setActive] = useWorkspaceState<ToolId>('toolbox.active', 'json')
+  const [query, setQuery] = useWorkspaceState('toolbox.query', '')
   const filtered = useMemo(() => tools.filter((tool) => {
     const text = (tool.title.join(' ') + ' ' + tool.description.join(' ') + ' ' + tool.keywords).toLowerCase()
     return text.includes(query.trim().toLowerCase())

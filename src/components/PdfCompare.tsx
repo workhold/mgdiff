@@ -4,6 +4,7 @@ import FileDropzone from './FileDropzone'
 import { comparePdfVisualPages, parsePdf, renderPdfComparisonPage, type PdfData, type PdfDiffRegion, type PdfPagePreview, type PdfVisualComparison } from '../lib/pdf'
 import { buildTextDiff } from '../lib/text'
 import type { HistoryRecordInput } from '../lib/history'
+import { useWorkspaceState } from '../lib/workspace-state'
 import { useLanguage } from '../i18n'
 
 type DisplayError = string | { zh: string; en: string }
@@ -55,18 +56,19 @@ export default function PdfCompare({ initialFiles, autoCompare = false, recordAu
   const rootRef = useRef<HTMLDivElement>(null)
   const onFileNameChangeRef = useRef(onFileNameChange)
   onFileNameChangeRef.current = onFileNameChange
-  const [leftFile, setLeftFile] = useState<File | null>(initialFiles?.leftFile ?? null)
-  const [rightFile, setRightFile] = useState<File | null>(initialFiles?.rightFile ?? null)
+  const [leftFile, setLeftFile] = useWorkspaceState<File | null>('pdf.leftFile', initialFiles?.leftFile ?? null)
+  const [rightFile, setRightFile] = useWorkspaceState<File | null>('pdf.rightFile', initialFiles?.rightFile ?? null)
   const [resultFiles, setResultFiles] = useState<{ leftFile: File; rightFile: File } | null>(null)
   const [showResult, setShowResult] = useState(false)
+  const [restoreResult, setRestoreResult] = useWorkspaceState('pdf.showResult', false)
   const [leftData, setLeftData] = useState<PdfData | null>(null)
   const [rightData, setRightData] = useState<PdfData | null>(null)
   const [visual, setVisual] = useState<PdfVisualComparison | null>(null)
-  const [page, setPage] = useState(1)
-  const [tab, setTab] = useState<'preview' | 'text'>('preview')
+  const [page, setPage] = useWorkspaceState('pdf.page', 1)
+  const [tab, setTab] = useWorkspaceState<'preview' | 'text'>('pdf.tab', 'preview')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<DisplayError>('')
-  const [showHighlights, setShowHighlights] = useState(true)
+  const [showHighlights, setShowHighlights] = useWorkspaceState('pdf.showHighlights', true)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<DisplayError>('')
   const [previewRegions, setPreviewRegions] = useState<PdfDiffRegion[]>([])
@@ -88,25 +90,31 @@ export default function PdfCompare({ initialFiles, autoCompare = false, recordAu
     ++compareToken.current
     setLoading(false)
     setError('')
+    setRestoreResult(false)
     if (side === 'left') setLeftFile(file)
     else setRightFile(file)
   }
 
   useEffect(() => {
-    if (autoCompare && initialFiles && !autoStarted.current) {
+    if (autoStarted.current) return
+    if (autoCompare && initialFiles) {
       autoStarted.current = true
       void startCompare(initialFiles, recordAutoCompare)
+    } else if (restoreResult && leftFile && rightFile) {
+      autoStarted.current = true
+      void startCompare({ leftFile, rightFile }, false, true)
     }
-    // History replay mounts this component with a new key.
+    // A restored tab has no seed; recompute its result without adding history.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [autoCompare, initialFiles, leftFile, rightFile, recordAutoCompare, restoreResult])
 
   useEffect(() => {
     rootRef.current?.closest('.main-scroll')?.scrollTo(0, 0)
   }, [showResult])
 
-  async function startCompare(files = leftFile && rightFile ? { leftFile, rightFile } : null, record = true) {
+  async function startCompare(files = leftFile && rightFile ? { leftFile, rightFile } : null, record = true, restoring = false) {
     if (!files || loading) return
+    autoStarted.current = true
     const token = ++compareToken.current
     setError('')
     setLoading(true)
@@ -119,10 +127,15 @@ export default function PdfCompare({ initialFiles, autoCompare = false, recordAu
       setRightData(right)
       setVisual(visualResult)
       setResultFiles(files)
-      setPage(1)
-      setTab('preview')
+      if (!restoring) {
+        setPage(1)
+        setTab('preview')
+      } else {
+        setPage((current) => Math.max(1, Math.min(current, visualResult.pages.length || 1)))
+      }
       previewRef.current = null
       setShowResult(true)
+      setRestoreResult(true)
       if (record) onCompared?.({ mode: 'pdf', leftName: files.leftFile.name, rightName: files.rightFile.name, summary: `${visualResult.changedPages} 页不同`, payload: { kind: 'files', ...files } })
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : String(cause)
@@ -185,7 +198,7 @@ export default function PdfCompare({ initialFiles, autoCompare = false, recordAu
 
       {showResult && resultFiles && (
       <div className="workspace-card result-card pdf-result">
-        <div className="compare-result-header"><div><div className="eyebrow">{tr('PDF 对比结果', 'PDF comparison results')}</div><div className="compare-result-names"><span title={resultFiles.leftFile.name}>{resultFiles.leftFile.name}</span><ArrowLeftRight size={16} /><span title={resultFiles.rightFile.name}>{resultFiles.rightFile.name}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setLoading(false); setShowResult(false) }}>{tr('返回修改', 'Back to edit')}</button><button className="button button-primary" type="button" disabled={loading} onClick={() => void startCompare()}><RotateCcw size={15} /> {loading ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
+        <div className="compare-result-header"><div><div className="eyebrow">{tr('PDF 对比结果', 'PDF comparison results')}</div><div className="compare-result-names"><span title={resultFiles.leftFile.name}>{resultFiles.leftFile.name}</span><ArrowLeftRight size={16} /><span title={resultFiles.rightFile.name}>{resultFiles.rightFile.name}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setLoading(false); setShowResult(false); setRestoreResult(false) }}>{tr('返回修改', 'Back to edit')}</button><button className="button button-primary" type="button" disabled={loading} onClick={() => void startCompare()}><RotateCcw size={15} /> {loading ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
         {error && <div className="inline-error" role="alert">{errorText(error, tr)}</div>}
         <div className="card-titlebar result-titlebar"><div><div className="eyebrow">{tr('文档差异', 'Document differences')}</div><h2>{tr('PDF 对比结果', 'PDF comparison results')} {visual && <span className="result-count">{tr(`${visual.changedPages} 页不同`, visual.changedPages === 1 ? '1 page differs' : `${visual.changedPages} pages differ`)}</span>}</h2></div></div>
         {visual ? (

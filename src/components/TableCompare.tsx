@@ -5,6 +5,7 @@ import Dropdown from './Dropdown'
 import { compareTableSheets, parseTable, type TableAlignment, type TableData, type TableComparisonRow } from '../lib/table'
 import { saveTextFile } from '../lib/files'
 import type { HistoryRecordInput } from '../lib/history'
+import { useWorkspaceState } from '../lib/workspace-state'
 import { useLanguage } from '../i18n'
 
 type Props = { initialFiles?: { leftFile: File; rightFile: File }; autoCompare?: boolean; recordAutoCompare?: boolean; onCompared?: (record: HistoryRecordInput) => void; onFileNameChange?: (fileName: string | null) => void }
@@ -14,16 +15,17 @@ export default function TableCompare({ initialFiles, autoCompare = false, record
   const rootRef = useRef<HTMLDivElement>(null)
   const onFileNameChangeRef = useRef(onFileNameChange)
   onFileNameChangeRef.current = onFileNameChange
-  const [leftFile, setLeftFile] = useState<File | null>(initialFiles?.leftFile ?? null)
-  const [rightFile, setRightFile] = useState<File | null>(initialFiles?.rightFile ?? null)
+  const [leftFile, setLeftFile] = useWorkspaceState<File | null>('table.leftFile', initialFiles?.leftFile ?? null)
+  const [rightFile, setRightFile] = useWorkspaceState<File | null>('table.rightFile', initialFiles?.rightFile ?? null)
   const [resultFiles, setResultFiles] = useState<{ leftFile: File; rightFile: File } | null>(null)
   const [showResult, setShowResult] = useState(false)
+  const [restoreResult, setRestoreResult] = useWorkspaceState('table.showResult', false)
   const [leftData, setLeftData] = useState<TableData | null>(null)
   const [rightData, setRightData] = useState<TableData | null>(null)
-  const [sheetIndex, setSheetIndex] = useState(0)
-  const [onlyChanged, setOnlyChanged] = useState(false)
-  const [alignment, setAlignment] = useState<TableAlignment>('first-column')
-  const [compareFormulas, setCompareFormulas] = useState(true)
+  const [sheetIndex, setSheetIndex] = useWorkspaceState('table.sheetIndex', 0)
+  const [onlyChanged, setOnlyChanged] = useWorkspaceState('table.onlyChanged', false)
+  const [alignment, setAlignment] = useWorkspaceState<TableAlignment>('table.alignment', 'first-column')
+  const [compareFormulas, setCompareFormulas] = useWorkspaceState('table.compareFormulas', true)
   const [usedAlignment, setUsedAlignment] = useState<TableAlignment>('first-column')
   const [usedCompareFormulas, setUsedCompareFormulas] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -40,25 +42,31 @@ export default function TableCompare({ initialFiles, autoCompare = false, record
     ++compareToken.current
     setLoading(false)
     setError('')
+    setRestoreResult(false)
     if (side === 'left') setLeftFile(file)
     else setRightFile(file)
   }
 
   useEffect(() => {
-    if (autoCompare && initialFiles && !autoStarted.current) {
+    if (autoStarted.current) return
+    if (autoCompare && initialFiles) {
       autoStarted.current = true
       void startCompare(initialFiles, recordAutoCompare)
+    } else if (restoreResult && leftFile && rightFile) {
+      autoStarted.current = true
+      void startCompare({ leftFile, rightFile }, false, true)
     }
-    // History replay mounts this component with a new key.
+    // A restored tab has no seed; recompute its result without adding history.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [autoCompare, initialFiles, leftFile, rightFile, recordAutoCompare, restoreResult])
 
   useEffect(() => {
     rootRef.current?.closest('.main-scroll')?.scrollTo(0, 0)
   }, [showResult])
 
-  async function startCompare(files = leftFile && rightFile ? { leftFile, rightFile } : null, record = true) {
+  async function startCompare(files = leftFile && rightFile ? { leftFile, rightFile } : null, record = true, restoring = false) {
     if (!files || loading) return
+    autoStarted.current = true
     const token = ++compareToken.current
     setError('')
     setLoading(true)
@@ -70,8 +78,9 @@ export default function TableCompare({ initialFiles, autoCompare = false, record
       setResultFiles(files)
       setUsedAlignment(alignment)
       setUsedCompareFormulas(compareFormulas)
-      setSheetIndex(0)
+      if (!restoring) setSheetIndex(0)
       setShowResult(true)
+      setRestoreResult(true)
       if (record) {
         const firstLeft = left.sheets[0]
         const firstRight = right.sheets.length === 1 ? right.sheets[0] : right.sheets.find((sheet) => sheet.name === firstLeft?.name)
@@ -162,7 +171,7 @@ export default function TableCompare({ initialFiles, autoCompare = false, record
 
       {showResult && resultFiles && (
       <div className="workspace-card result-card table-result">
-        <div className="compare-result-header"><div><div className="eyebrow">{tr('表格对比结果', 'Table comparison result')}</div><div className="compare-result-names"><span title={resultFiles.leftFile.name}>{resultFiles.leftFile.name}</span><ArrowLeftRight size={16} /><span title={resultFiles.rightFile.name}>{resultFiles.rightFile.name}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setLoading(false); setShowResult(false) }}>{tr('返回修改', 'Back to editing')}</button><button className="button button-primary" type="button" disabled={loading} onClick={() => void startCompare()}><RotateCcw size={15} /> {loading ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
+        <div className="compare-result-header"><div><div className="eyebrow">{tr('表格对比结果', 'Table comparison result')}</div><div className="compare-result-names"><span title={resultFiles.leftFile.name}>{resultFiles.leftFile.name}</span><ArrowLeftRight size={16} /><span title={resultFiles.rightFile.name}>{resultFiles.rightFile.name}</span></div></div><div className="compare-result-actions"><button className="button button-secondary" type="button" onClick={() => { ++compareToken.current; setLoading(false); setShowResult(false); setRestoreResult(false) }}>{tr('返回修改', 'Back to editing')}</button><button className="button button-primary" type="button" disabled={loading} onClick={() => void startCompare()}><RotateCcw size={15} /> {loading ? tr('正在比对…', 'Comparing…') : tr('重新比对', 'Compare again')}</button></div></div>
         {error && <div className="inline-error" role="alert">{displayError}</div>}
         <div className="card-titlebar result-titlebar">
           <div><div className="eyebrow">{tr('单元格差异', 'Cell differences')}</div><h2>{tr('表格对比结果', 'Table comparison result')} {result && <span className="result-count">{sheetMismatch ? `${tr('工作表缺失', 'Sheet missing')} · ` : ''}{result.changedCells} {tr('个单元格不同', result.changedCells === 1 ? 'cell differs' : 'cells differ')}{result.changedFormulaCells > 0 ? ` · ${result.changedFormulaCells} ${tr('处公式变化', result.changedFormulaCells === 1 ? 'formula change' : 'formula changes')}` : ''}</span>}</h2></div>

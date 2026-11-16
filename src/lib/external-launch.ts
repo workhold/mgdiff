@@ -168,6 +168,13 @@ function decodeText(source: RawFile, label: string): string {
   }
 }
 
+/** Checks the process launch arguments without loading external files. */
+export async function isExternalLaunch(): Promise<boolean> {
+  if (!isTauriApp()) return false
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke<boolean>('is_external_launch')
+}
+
 /** Reads the launch snapshot. Browser previews have no external launch. */
 export async function getExternalLaunch(): Promise<ExternalLaunch | null> {
   if (!isTauriApp()) return null

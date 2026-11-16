@@ -8,6 +8,7 @@ import { saveTextFile } from '../lib/files'
 import { buildTextDiff, inlineParts, mergeDiffBlock, patchFor, preserveEditedLineEndings, textStats, type DiffPrecision, type TextDiffRow } from '../lib/text'
 import type { HistoryRecordInput } from '../lib/history'
 import { useLanguage } from '../i18n'
+import { useWorkspaceState } from '../lib/workspace-state'
 
 const SAMPLE_LEFT = `function formatPrice(amount, currency = 'USD') {
   const formatted = amount.toFixed(2);
@@ -54,24 +55,24 @@ export default function TextCompare({ initialPair, autoCompare = false, recordAu
   const diffRowPrefix = useId()
   const onFileNameChangeRef = useRef(onFileNameChange)
   onFileNameChangeRef.current = onFileNameChange
-  const [leftText, setLeftText] = useState(initialPair?.leftText ?? SAMPLE_LEFT)
-  const [rightText, setRightText] = useState(initialPair?.rightText ?? SAMPLE_RIGHT)
+  const [leftText, setLeftText] = useWorkspaceState('text.leftText', initialPair?.leftText ?? SAMPLE_LEFT)
+  const [rightText, setRightText] = useWorkspaceState('text.rightText', initialPair?.rightText ?? SAMPLE_RIGHT)
   const [leftFile, setLeftFile] = useState<File | null>(null)
   const [rightFile, setRightFile] = useState<File | null>(null)
-  const [leftName, setLeftName] = useState(initialPair?.leftName ?? 'original.js')
-  const [rightName, setRightName] = useState(initialPair?.rightName ?? 'modified.js')
-  const [leftUntitled, setLeftUntitled] = useState(initialPair?.leftUntitled ?? false)
-  const [rightUntitled, setRightUntitled] = useState(initialPair?.rightUntitled ?? false)
-  const [leftHasRealName, setLeftHasRealName] = useState(Boolean(initialPair && !initialPair.leftUntitled))
-  const [rightHasRealName, setRightHasRealName] = useState(Boolean(initialPair && !initialPair.rightUntitled))
-  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
-  const [ignoreCase, setIgnoreCase] = useState(false)
-  const [comparison, setComparison] = useState<TextSnapshot | null>(() => autoCompare && initialPair ? { ...initialPair, ignoreWhitespace: false, ignoreCase: false, leftUntitled: initialPair.leftUntitled ?? false, rightUntitled: initialPair.rightUntitled ?? false } : null)
-  const [showSame, setShowSame] = useState(true)
-  const [view, setView] = useState<'split' | 'unified'>('split')
-  const [precision, setPrecision] = useState<DiffPrecision>('smart')
-  const [wrapLines, setWrapLines] = useState(true)
-  const [activeDiff, setActiveDiff] = useState(0)
+  const [leftName, setLeftName] = useWorkspaceState('text.leftName', initialPair?.leftName ?? 'original.js')
+  const [rightName, setRightName] = useWorkspaceState('text.rightName', initialPair?.rightName ?? 'modified.js')
+  const [leftUntitled, setLeftUntitled] = useWorkspaceState('text.leftUntitled', initialPair?.leftUntitled ?? false)
+  const [rightUntitled, setRightUntitled] = useWorkspaceState('text.rightUntitled', initialPair?.rightUntitled ?? false)
+  const [leftHasRealName, setLeftHasRealName] = useWorkspaceState('text.leftHasRealName', Boolean(initialPair && !initialPair.leftUntitled))
+  const [rightHasRealName, setRightHasRealName] = useWorkspaceState('text.rightHasRealName', Boolean(initialPair && !initialPair.rightUntitled))
+  const [ignoreWhitespace, setIgnoreWhitespace] = useWorkspaceState('text.ignoreWhitespace', false)
+  const [ignoreCase, setIgnoreCase] = useWorkspaceState('text.ignoreCase', false)
+  const [comparison, setComparison] = useWorkspaceState<TextSnapshot | null>('text.comparison', () => autoCompare && initialPair ? { ...initialPair, ignoreWhitespace: false, ignoreCase: false, leftUntitled: initialPair.leftUntitled ?? false, rightUntitled: initialPair.rightUntitled ?? false } : null)
+  const [showSame, setShowSame] = useWorkspaceState('text.showSame', true)
+  const [view, setView] = useWorkspaceState<'split' | 'unified'>('text.view', 'split')
+  const [precision, setPrecision] = useWorkspaceState<DiffPrecision>('text.precision', 'smart')
+  const [wrapLines, setWrapLines] = useWorkspaceState('text.wrapLines', true)
+  const [activeDiff, setActiveDiff] = useWorkspaceState('text.activeDiff', 0)
   const [error, setError] = useState<'binary' | 'read' | null>(null)
   const leftGutter = useRef<HTMLDivElement>(null)
   const rightGutter = useRef<HTMLDivElement>(null)

@@ -1873,10 +1873,11 @@ dependencies = [
 
 [[package]]
 name = "mgdiff"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rfd",
  "serde",
+ "serde_json",
  "sha2 0.11.1",
  "tauri",
  "tauri-build",

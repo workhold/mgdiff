@@ -14,9 +14,13 @@ import MergeWorkspace, { type MergeInputs } from './components/MergeWorkspace'
 import DeveloperToolbox from './components/DeveloperToolbox'
 import Dropdown from './components/Dropdown'
 import { recordHistory, type HistoryRecordInput, type HistoryReplayPayload } from './lib/history'
-import { ExternalLaunchError, getExternalLaunch, saveExternalMerge, type ExternalFolderSelection } from './lib/external-launch'
+import { ExternalLaunchError, getExternalLaunch, isExternalLaunch, saveExternalMerge, type ExternalFolderSelection } from './lib/external-launch'
+import { isTauriApp } from './lib/files'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useLanguage } from './i18n'
+import { WorkspaceStateProvider, type WorkspaceValues } from './lib/workspace-state'
+import { flushWorkspaceSession, loadWorkspaceSession, saveWorkspaceSession, type SessionMode, type WorkspaceSession } from './lib/workspace-session'
+import packageJson from '../package.json'
 
 type CompareMode = 'text' | 'table' | 'image' | 'folder' | 'pdf'
 type Mode = CompareMode | 'merge' | 'toolbox'
@@ -27,7 +31,7 @@ type LaunchSeed =
   | { mode: 'table' | 'image' | 'pdf'; files: FilePair; recordAuto: boolean }
   | { mode: 'folder'; folders: FolderPair; recordAuto: boolean }
 
-type WorkspaceTab = { id: number; mode: Mode; fileName?: string; seed?: LaunchSeed }
+type WorkspaceTab = { id: number; mode: Mode; fileName?: string; seed?: LaunchSeed; state: WorkspaceValues }
 type TabMenu = { tabId: number; x: number; y: number }
 type TabDrop = { targetId: number; side: 'before' | 'after' }
 
@@ -42,10 +46,15 @@ export default function App() {
     { id: 'folder' as CompareMode, title: tr('文件夹对比', 'Folder comparison'), description: tr('递归核对目录中的文件', 'Compare files across folders recursively'), icon: FolderClosed, shortcut: '4' },
     { id: 'pdf' as CompareMode, title: tr('PDF 对比', 'PDF comparison'), description: tr('逐页检查视觉与文字变化', 'Inspect visual and text changes page by page'), icon: FileText, shortcut: '5' },
   ]
-  const [tabs, setTabs] = useState<WorkspaceTab[]>([{ id: 1, mode: 'text' }])
+  const [tabs, setTabs] = useState<WorkspaceTab[]>([{ id: 1, mode: 'text', state: {} }])
   const [activeTabId, setActiveTabId] = useState<number | null>(1)
+  const [restoring, setRestoring] = useState(true)
   const tabCounter = useRef(1)
   const lastMode = useRef<Mode>('text')
+  const externalLaunchRef = useRef(false)
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
+  const sidebarOpenRef = useRef(true)
   const tabRefs = useRef(new Map<number, HTMLButtonElement>())
   const addTabRef = useRef<HTMLButtonElement>(null)
   const tabListRef = useRef<HTMLDivElement>(null)
@@ -61,6 +70,9 @@ export default function App() {
   const [integrationOpen, setIntegrationOpen] = useState(false)
   const [externalMerge, setExternalMerge] = useState<MergeInputs | null>(null)
   const [launchError, setLaunchError] = useState<{ zh: string; en: string } | null>(null)
+  tabsRef.current = tabs
+  activeTabIdRef.current = activeTabId
+  sidebarOpenRef.current = sidebarOpen
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null
   const mode = activeTab?.mode ?? lastMode.current
   const modeOptions = [
@@ -77,7 +89,7 @@ export default function App() {
 
   function createTab(nextMode: Mode, seed?: LaunchSeed, fileName?: string) {
     const id = ++tabCounter.current
-    setTabs((previous) => [...previous, { id, mode: nextMode, seed, fileName }])
+    setTabs((previous) => [...previous, { id, mode: nextMode, seed, fileName, state: {} }])
     lastMode.current = nextMode
     setActiveTabId(id)
   }
@@ -289,6 +301,120 @@ export default function App() {
     })
   }
 
+  function sessionSnapshot(currentTabs = tabsRef.current): WorkspaceSession {
+    const sessionTabs = currentTabs.filter((tab): tab is WorkspaceTab & { mode: SessionMode } => tab.mode !== 'merge')
+      .map(({ id, mode, fileName, state }) => ({ id, mode, fileName, state }))
+    const active = activeTabIdRef.current
+    return {
+      tabs: sessionTabs,
+      activeTabId: sessionTabs.some((tab) => tab.id === active) ? active : sessionTabs.at(-1)?.id ?? null,
+      nextId: tabCounter.current,
+      lastMode: lastMode.current === 'merge' ? sessionTabs.at(-1)?.mode ?? 'text' : lastMode.current,
+      sidebarOpen: sidebarOpenRef.current,
+    }
+  }
+
+  function saveCurrentSession(currentTabs = tabsRef.current) {
+    if (restoring || externalLaunchRef.current) return
+    saveWorkspaceSession(sessionSnapshot(currentTabs))
+  }
+
+  function updateTabState(id: number, key: string, value: unknown) {
+    const current = tabsRef.current
+    const tab = current.find((item) => item.id === id)
+    if (!tab || Object.is(tab.state[key], value)) return
+    const next = current.map((item) => item.id === id ? { ...item, state: { ...item.state, [key]: value } } : item)
+    tabsRef.current = next
+    setTabs(next)
+    saveCurrentSession(next)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void isExternalLaunch().then((external) => {
+      if (cancelled) return
+      if (external) {
+        externalLaunchRef.current = true
+        tabsRef.current = []
+        activeTabIdRef.current = null
+        tabCounter.current = 0
+        setTabs([])
+        setActiveTabId(null)
+        setRestoring(false)
+        return
+      }
+      void loadWorkspaceSession().then(({ session, missingFiles }) => {
+        if (cancelled) return
+        if (session) {
+          const restored = session.tabs.map((tab) => ({ ...tab, state: tab.state }))
+          tabsRef.current = restored
+          setTabs(restored)
+          activeTabIdRef.current = session.activeTabId
+          setActiveTabId(session.activeTabId)
+          tabCounter.current = session.nextId
+          lastMode.current = session.lastMode
+          sidebarOpenRef.current = session.sidebarOpen
+          setSidebarOpen(session.sidebarOpen)
+        }
+        if (missingFiles) setLaunchError({ zh: '部分文件无法从本机存储恢复，请重新选择。', en: 'Some files could not be restored from local storage. Select them again.' })
+        setRestoring(false)
+      }).catch(() => { if (!cancelled) setRestoring(false) })
+    }).catch(() => {
+      if (cancelled) return
+      // An unknown launch mode must not overwrite another window's workspace.
+      externalLaunchRef.current = true
+      tabsRef.current = []
+      activeTabIdRef.current = null
+      tabCounter.current = 0
+      setTabs([])
+      setActiveTabId(null)
+      setLaunchError({ zh: '无法确认启动方式，当前窗口不会保存工作区。', en: 'Unable to determine the launch mode. This window will not save the workspace.' })
+      setRestoring(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (restoring) return
+    saveCurrentSession()
+  }, [tabs, activeTabId, sidebarOpen, restoring])
+
+  useEffect(() => {
+    if (restoring) return
+    const flush = () => saveCurrentSession()
+    const reportError = () => setLaunchError({ zh: '本机存储不可用，工作区未能完整保存。', en: 'Local storage is unavailable. The workspace could not be saved completely.' })
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('mgdiff:workspace-save-error', reportError)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('mgdiff:workspace-save-error', reportError)
+    }
+  }, [restoring])
+
+  useEffect(() => {
+    if (restoring || externalLaunchRef.current || !isTauriApp()) return
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void getCurrentWindow().onCloseRequested(async (event) => {
+      saveCurrentSession()
+      let saved = false
+      try { saved = await flushWorkspaceSession() } catch { /* Keep the window open so the user can retry. */ }
+      if (!saved) {
+        event.preventDefault()
+        setLaunchError({ zh: '工作区未能完整保存，请重试关闭。', en: 'The workspace could not be saved completely. Retry closing the window.' })
+      }
+    }).then((remove) => {
+      if (disposed) remove()
+      else unlisten = remove
+    }).catch(() => {
+      if (!disposed) setLaunchError({ zh: '无法监听窗口关闭，工作区可能无法完整保存。', en: 'Unable to monitor window closing. The workspace may not be saved completely.' })
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [restoring])
+
   function tabTitle(tab: WorkspaceTab) {
     return `${modeTitle(tab.mode)} · ${tab.fileName ?? `#${tab.id}`}`
   }
@@ -392,6 +518,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (restoring) return
     let cancelled = false
     void getExternalLaunch().then((launch) => {
       if (cancelled || !launch) return
@@ -413,7 +540,7 @@ export default function App() {
       ? { zh: cause.message, en: cause.english }
       : { zh: '外部工具启动失败', en: 'Unable to launch from the external tool.' }) })
     return () => { cancelled = true }
-  }, [])
+  }, [restoring])
 
   async function saveMergeResult(text: string) {
     await saveExternalMerge(text)
@@ -427,6 +554,8 @@ export default function App() {
   function cancelMerge() {
     void getCurrentWindow().close()
   }
+
+  if (restoring) return <div className="app-shell" />
 
   return (
     <div className={`app-shell ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
@@ -473,7 +602,7 @@ export default function App() {
         </nav>
         <div className="sidebar-bottom">
           <div className="privacy-card"><span className="privacy-icon"><LockKeyhole size={17} /></span><strong>{tr('本地处理，安心对比', 'Private, local comparison')}</strong><p>{tr('文件只在你的设备上读取和分析，不上传到服务器。', 'Files are read and analyzed only on your device. Nothing is uploaded to a server.')}</p></div>
-          <div className="sidebar-version"><span>MG Diff</span><span>v0.1.0</span></div>
+          <div className="sidebar-version"><span>MG Diff</span><span>v{packageJson.version}</span></div>
         </div>
       </aside>
 
@@ -511,7 +640,7 @@ export default function App() {
         </div>
         {tabs.map((tab) => {
           return <div key={tab.id} id={`workspace-panel-${tab.id}`} className="main-scroll" role="tabpanel" aria-labelledby={`workspace-tab-${tab.id}`} hidden={tab.id !== activeTabId}>
-          <div className="main-inner">
+          <WorkspaceStateProvider values={tab.state} onChange={(key, value) => updateTabState(tab.id, key, value)}><div className="main-inner">
             <h1 className="visually-hidden">{modeTitle(tab.mode)}</h1>
             {launchError && <div className="inline-error" role="alert">{tr(launchError.zh, launchError.en)} <button className="text-button" type="button" onClick={() => setLaunchError(null)}>{tr('关闭', 'Close')}</button></div>}
             {tab.mode === 'text' && <TextCompare initialPair={tab.seed?.mode === 'text' ? tab.seed.pair : undefined} autoCompare={tab.seed?.mode === 'text'} recordAutoCompare={tab.seed?.mode === 'text' ? tab.seed.recordAuto : false} onCompared={onCompared} onFileNameChange={(name) => updateTabFileName(tab.id, name)} />}
@@ -522,7 +651,7 @@ export default function App() {
             {tab.mode === 'toolbox' && <DeveloperToolbox />}
             {tab.mode === 'merge' && externalMerge && <MergeWorkspace inputs={externalMerge} onSave={saveMergeResult} onCancel={cancelMerge} />}
             <footer className="app-footer"><span>{tr('MG Diff · 为清晰地发现每一处变化而设计', 'MG Diff · See every change clearly')}</span><span>{tr('所有对比均在本地完成', 'All comparisons stay on your device')}</span></footer>
-          </div>
+          </div></WorkspaceStateProvider>
         </div>})}
         {tabs.length === 0 && <div className="main-scroll"><div className="main-inner empty-workspace"><div className="empty-workspace__message"><Layers3 size={32} /><h1>{tr('还没有打开的页面', 'No open pages')}</h1><p>{tr('从左侧选择对比或工具类型，或点击上方 + 新建页面。', 'Choose a comparison or tool from the sidebar, or click + above to open a page.')}</p></div></div></div>}
       </main>

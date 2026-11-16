@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::UNIX_EPOCH;
+use tauri::Manager;
 use walkdir::WalkDir;
 
 #[derive(Default)]
@@ -319,8 +320,39 @@ fn scan_selected_folder() -> Result<Option<(PathBuf, FolderSelection)>, String> 
     Ok(Some((folder, selection)))
 }
 
+fn authorized_folders_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("selected-folders.json"))
+}
+
+fn authorized_folders(app: &tauri::AppHandle) -> Result<Vec<PathBuf>, String> {
+    let path = authorized_folders_file(app)?;
+    match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn remember_folder(app: &tauri::AppHandle, folder: &Path) -> Result<(), String> {
+    let path = authorized_folders_file(app)?;
+    let mut folders = authorized_folders(app)?;
+    if folders.iter().any(|known| known == folder) {
+        return Ok(());
+    }
+    folders.push(folder.to_path_buf());
+    let parent = path.parent().ok_or("Unable to locate app data directory")?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let bytes = serde_json::to_vec(&folders).map_err(|error| error.to_string())?;
+    fs::write(path, bytes).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 async fn pick_folder_entries(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SelectedFolders>,
 ) -> Result<Option<FolderSelection>, String> {
     let scanned = tauri::async_runtime::spawn_blocking(scan_selected_folder)
@@ -329,12 +361,34 @@ async fn pick_folder_entries(
     let Some((folder, selection)) = scanned else {
         return Ok(None);
     };
+    let _ = remember_folder(&app, &folder);
     state
         .0
         .lock()
         .map_err(|error| error.to_string())?
         .push(folder);
     Ok(Some(selection))
+}
+
+#[tauri::command]
+async fn restore_folder_entries(
+    folder_path: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SelectedFolders>,
+) -> Result<FolderSelection, String> {
+    let folder = fs::canonicalize(&folder_path).map_err(|error| error.to_string())?;
+    if !authorized_folders(&app)?.contains(&folder) {
+        return Err("Folder was not previously selected".to_string());
+    }
+    let scan_path = folder.clone();
+    let selection = tauri::async_runtime::spawn_blocking(move || scan_folder(&scan_path))
+        .await
+        .map_err(|error| error.to_string())??;
+    let mut allowed = state.0.lock().map_err(|error| error.to_string())?;
+    if !allowed.contains(&folder) {
+        allowed.push(folder);
+    }
+    Ok(selection)
 }
 
 #[tauri::command]
@@ -356,6 +410,11 @@ fn read_file_bytes(
         return Err("Selected path is not a file".to_string());
     }
     fs::read(resolved).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn is_external_launch(state: tauri::State<'_, ExternalLaunchState>) -> bool {
+    state.request.is_some()
 }
 
 #[tauri::command]
@@ -472,9 +531,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             pick_folder_entries,
+            restore_folder_entries,
             read_file_bytes,
             save_text_file,
             save_binary_file,
+            is_external_launch,
             get_external_launch,
             save_external_merge,
             get_external_tool_path
