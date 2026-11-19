@@ -1873,7 +1873,7 @@ dependencies = [
 
 [[package]]
 name = "mgdiff"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rfd",
  "serde",
